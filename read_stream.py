@@ -7,13 +7,10 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import from_json, col
 from pyspark.sql.types import StructType, StructField, StringType, LongType, BooleanType
 
-# Initialize Kafka producer
 producer = KafkaProducer(bootstrap_servers='localhost:9092')
 
 
-# Function to handle WebSocket messages and send them to Kafka
 def on_message(ws, message):
-    # Assuming the message is a JSON string containing timestamp, price, and quantity
     data = json.loads(message)
 
     # Rename the fields
@@ -45,8 +42,8 @@ def on_open(ws):
     print("WebSocket connection opened")
 
 
-def start_websocket():
-    ws_url = "wss://stream.binance.com:9443/ws/btcusdt@trade"
+def start_websocket(ws_url):
+
     ws = websocket.WebSocketApp(
         ws_url,
         on_open=on_open,
@@ -57,13 +54,13 @@ def start_websocket():
     ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE})
 
 
-def run_ws_to_kafka():
+def run_ws_to_kafka(ws_url):
     # Run WebSocket in a separate thread to keep it running alongside Spark
-    threading.Thread(target=start_websocket).start()
+    threading.Thread(target=start_websocket, kwargs={"ws_url": ws_url}).start()
 
 
 # Start the WebSocket consumer
-run_ws_to_kafka()
+run_ws_to_kafka("wss://stream.binance.com:9443/ws/btcusdt@trade")
 
 # Initialize Spark session
 spark = SparkSession.builder \
@@ -99,9 +96,8 @@ schema = StructType([
 parsed_df = json_df.withColumn("jsonData", from_json(col("message"), schema)) \
     .select("jsonData.*")
 
-# parsed_df.show()
-
 # Display the streaming DataFrame
+# change to delta to write to Delta Lake
 query = parsed_df \
     .writeStream \
     .outputMode("append") \
