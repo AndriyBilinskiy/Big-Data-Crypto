@@ -1,11 +1,9 @@
 import json
 import ssl
 import threading
-import time
 import websocket
 from kafka import KafkaProducer
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col
 
 # Initialize Kafka producer
 producer = KafkaProducer(bootstrap_servers='localhost:9092')
@@ -43,17 +41,18 @@ def start_websocket():
     ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE})
 
 
-def run():
+def run_ws_to_kafka():
     # Run WebSocket in a separate thread to keep it running alongside Spark
     threading.Thread(target=start_websocket).start()
 
 
 # Start the WebSocket consumer
-run()
+run_ws_to_kafka()
 
 # Initialize Spark session
 spark = SparkSession.builder \
     .appName("WebSocket Stream Example") \
+    .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.0") \
     .getOrCreate()
 
 # Read data from Kafka topic
@@ -69,15 +68,16 @@ kafka_stream_df = spark \
 json_df = kafka_stream_df.selectExpr("CAST(value AS STRING) as message")
 
 # Parse the JSON message (assuming message has 'timestamp', 'price', 'quantity')
-parsed_df = json_df.select(
-    col("message"),
-    json.loads(col("message"))["timestamp"].alias("timestamp"),
-    json.loads(col("message"))["price"].alias("price"),
-    json.loads(col("message"))["quantity"].alias("quantity")
-)
+# parsed_df = json_df.select(
+#     col("message"),
+#     json.loads(col("message"))["timestamp"].alias("timestamp"),
+#     json.loads(col("message"))["price"].alias("price"),
+#     json.loads(col("message"))["quantity"].alias("quantity")
+# )
+# parsed_df.show()
 
 # Display the streaming DataFrame
-query = parsed_df \
+query = json_df \
     .writeStream \
     .outputMode("append") \
     .format("console") \
