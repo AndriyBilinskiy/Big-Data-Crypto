@@ -4,6 +4,8 @@ import threading
 import websocket
 from kafka import KafkaProducer
 from pyspark.sql import SparkSession
+from pyspark.sql.functions import from_json, col
+from pyspark.sql.types import StructType, StructField, StringType, LongType, BooleanType
 
 # Initialize Kafka producer
 producer = KafkaProducer(bootstrap_servers='localhost:9092')
@@ -13,7 +15,21 @@ producer = KafkaProducer(bootstrap_servers='localhost:9092')
 def on_message(ws, message):
     # Assuming the message is a JSON string containing timestamp, price, and quantity
     data = json.loads(message)
-    producer.send('websocket_topic', value=message.encode('utf-8'))
+
+    # Rename the fields
+    renamed_data = {
+        "event_type": data.get("e"),
+        "event_time": data.get("E"),
+        "symbol": data.get("s"),
+        "trade_id": data.get("t"),
+        "price": data.get("p"),
+        "quantity": data.get("q"),
+        "trade_time": data.get("T"),
+        "is_market_maker": data.get("m"),
+        "ignore": data.get("M")
+    }
+    renamed_message = json.dumps(renamed_data)
+    producer.send('websocket_topic', value=renamed_message.encode('utf-8'))
     producer.flush()
 
 
@@ -67,17 +83,26 @@ kafka_stream_df = spark \
 # The Kafka messages are in byte format; decode them into a string and parse JSON
 json_df = kafka_stream_df.selectExpr("CAST(value AS STRING) as message")
 
-# Parse the JSON message (assuming message has 'timestamp', 'price', 'quantity')
-# parsed_df = json_df.select(
-#     col("message"),
-#     json.loads(col("message"))["timestamp"].alias("timestamp"),
-#     json.loads(col("message"))["price"].alias("price"),
-#     json.loads(col("message"))["quantity"].alias("quantity")
-# )
+schema = StructType([
+    StructField("event_type", StringType(), True),
+    StructField("event_time", LongType(), True),
+    StructField("symbol", StringType(), True),
+    StructField("trade_id", LongType(), True),
+    StructField("price", StringType(), True),
+    StructField("quantity", StringType(), True),
+    StructField("trade_time", LongType(), True),
+    StructField("is_market_maker", BooleanType(), True),
+    StructField("ignore", BooleanType(), True)
+])
+
+# Parse the JSON message using the schema
+parsed_df = json_df.withColumn("jsonData", from_json(col("message"), schema)) \
+    .select("jsonData.*")
+
 # parsed_df.show()
 
 # Display the streaming DataFrame
-query = json_df \
+query = parsed_df \
     .writeStream \
     .outputMode("append") \
     .format("console") \
