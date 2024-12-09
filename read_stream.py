@@ -6,6 +6,7 @@ from kafka import KafkaProducer
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import from_json, col
 from pyspark.sql.types import StructType, StructField, StringType, LongType, BooleanType
+from config import pairs, ws_url
 
 producer = KafkaProducer(bootstrap_servers='localhost:9092')
 
@@ -40,10 +41,15 @@ def on_close(ws, close_status_code, close_msg):
 
 def on_open(ws):
     print("WebSocket connection opened")
+    subscribe_message = json.dumps({
+        "method": "SUBSCRIBE",
+        "params": pairs,
+        "id": 1
+    })
+    ws.send(subscribe_message)
 
 
-def start_websocket(ws_url):
-
+def start_websocket():
     ws = websocket.WebSocketApp(
         ws_url,
         on_open=on_open,
@@ -54,18 +60,18 @@ def start_websocket(ws_url):
     ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE})
 
 
-def run_ws_to_kafka(ws_url):
+def run_ws_to_kafka():
     # Run WebSocket in a separate thread to keep it running alongside Spark
-    threading.Thread(target=start_websocket, kwargs={"ws_url": ws_url}).start()
+    threading.Thread(target=start_websocket).start()
 
 
 # Start the WebSocket consumer
-run_ws_to_kafka("wss://stream.binance.com:9443/ws/btcusdt@trade")
+run_ws_to_kafka()
 
 # Initialize Spark session
 spark = SparkSession.builder \
     .appName("WebSocket Stream Example") \
-    .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.0") \
+    .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.0,io.delta:delta-core_2.12:2.1.0") \
     .getOrCreate()
 
 # Read data from Kafka topic
@@ -101,7 +107,9 @@ parsed_df = json_df.withColumn("jsonData", from_json(col("message"), schema)) \
 query = parsed_df \
     .writeStream \
     .outputMode("append") \
-    .format("console") \
+    .format("parquet") \
+    .option("path", "data") \
+    .option("checkpointLocation", "data/_checkpoints") \
     .start()
 
 # Await termination of the stream
