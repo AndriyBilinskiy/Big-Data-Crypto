@@ -5,57 +5,93 @@ import matplotlib.pyplot as plt
 from apscheduler.schedulers.background import BackgroundScheduler
 from telegram import Update, Bot
 from telegram.ext import Application, CommandHandler, CallbackContext, MessageHandler, filters
+from pyspark.sql import SparkSession
+import pytz
+
+LOCAL_TIMEZONE = pytz.timezone("Europe/Kyiv")
+UTC = pytz.utc
 
 subscriptions = {}
 scheduler = BackgroundScheduler()
 MAIN_EVENT_LOOP = asyncio.get_event_loop()
 
-
-def fetch_crypto_data(symbol: str) -> pd.DataFrame:
-    """
-    Simulate fetching cryptocurrency data.
-    Replace this function with actual API calls for real-time data.
-    """
-    times = pd.date_range(end=datetime.datetime.now(), periods=24, freq="h")
-    prices = [50000 + i * 50 for i in range(24)]
-    return pd.DataFrame({"event_time": times, "price": prices})
+spark = SparkSession.builder \
+    .appName("Crypto Price Bot") \
+    .getOrCreate()
 
 
-def generate_plot(symbol: str) -> str:
+def generate_plot(symbol: str, interval: str) -> str:
     """
-    Generate a scatter plot for cryptocurrency price changes over time.
+    Generate a scatter plot for cryptocurrency price changes over a specific interval
+    (last minute, hour, or day) from a Parquet dataset.
     """
-    df = fetch_crypto_data(symbol)
+    parquet_df = spark.read.parquet("data/part-*.parquet")
+
+    pdf = parquet_df.toPandas()
+
+    pdf['event_time'] = pd.to_datetime(pdf['event_time'], unit='ms', utc=True)
+    pdf['event_time'] = pdf['event_time'].dt.tz_convert(LOCAL_TIMEZONE)
+    pdf['quantity'] = pd.to_numeric(pdf['quantity'], errors='coerce')
+    pdf['price'] = pd.to_numeric(pdf['price'], errors='coerce')
+    pdf = pdf.dropna(subset=['quantity', 'price'])
+
+    filtered_pdf = pdf[pdf['symbol'] == symbol]
+
+    now = datetime.datetime.now(LOCAL_TIMEZONE)
+    if interval == "minute":
+        start_time = now - datetime.timedelta(minutes=1)
+    elif interval == "hourly":
+        start_time = now - datetime.timedelta(hours=1)
+    elif interval == "daily":
+        start_time = now - datetime.timedelta(days=1)
+    else:
+        raise ValueError("Invalid interval. Use 'minute', 'hourly', or 'daily'.")
+
+    filtered_pdf = filtered_pdf[filtered_pdf['event_time'] >= start_time]
+
+    if filtered_pdf.empty:
+        plt.figure(figsize=(12, 6))
+        plt.text(0.5, 0.5, f"No data available for {symbol} in the last {interval}.",
+                 fontsize=12, ha='center', va='center')
+        plt.title("No Data")
+        plt.axis('off')
+        plot_path = f"{symbol}_no_data_plot.png"
+        plt.savefig(plot_path)
+        plt.close()
+        return plot_path
+
     plt.figure(figsize=(12, 6))
-    plt.scatter(df['event_time'], df['price'], alpha=0.7, label=f"{symbol} Price")
-    plt.title(f"Price Change of {symbol} Over Time")
+    plt.scatter(filtered_pdf['event_time'], filtered_pdf['price'], alpha=0.7, label=f"{symbol} Price")
+    plt.title(f"Price Change of {symbol} Over the Last {interval.capitalize()}")
     plt.xlabel("Event Time")
     plt.ylabel("Price")
     plt.grid(True)
     plt.xticks(rotation=45)
     plt.legend()
     plt.tight_layout()
-    plot_path = f"{symbol}_price_plot.png"
+
+    plot_path = f"{symbol}_price_plot_{interval}.png"
     plt.savefig(plot_path)
     plt.close()
     return plot_path
 
 
-async def send_plot(chat_id: int, symbol: str):
+async def send_plot(chat_id: int, symbol: str, interval: str):
     """
-    Send a cryptocurrency price change plot to a user via Telegram.
+    Send a cryptocurrency price change plot to a user.
     """
-    print(f"Sending plot to chat_id={chat_id} for symbol={symbol}")
-    plot_path = generate_plot(symbol)
+    print(f"Sending plot to chat_id={chat_id} for symbol={symbol} with interval={interval}")
+    plot_path = generate_plot(symbol, interval)
     bot = Bot(token='API_TOKEN')
-    await bot.send_photo(chat_id=chat_id, photo=open(plot_path, 'rb'), caption=f"{symbol} Price Change Plot")
+    await bot.send_photo(chat_id=chat_id, photo=open(plot_path, 'rb'),
+                         caption=f"{symbol} Price Change Plot ({interval.capitalize()})")
 
 
-def schedule_send_plot(chat_id: int, symbol: str):
+def schedule_send_plot(chat_id: int, symbol: str, interval: str):
     """
-    Wrapper to schedule the `send_plot` coroutine using APScheduler.
+    Wrapper to schedule the `send_plot` coroutine.
     """
-    asyncio.run_coroutine_threadsafe(send_plot(chat_id, symbol), MAIN_EVENT_LOOP)
+    asyncio.run_coroutine_threadsafe(send_plot(chat_id, symbol, interval), MAIN_EVENT_LOOP)
 
 
 async def start(update: Update, context: CallbackContext):
@@ -92,7 +128,7 @@ async def subscribe(update: Update, context: CallbackContext):
         schedule_send_plot,
         'interval',
         **trigger_args,
-        args=(chat_id, symbol),
+        args=(chat_id, symbol, interval),
         id=str(chat_id),
         replace_existing=True
     )

@@ -43,6 +43,21 @@ This project streams real-time cryptocurrency trade data from Binance WebSocket 
     python read_parquet.py
     ```
 
+### Telegram Bot:
+
+1. First of all, you need to start bot:
+   ```shell
+   python tg_crypto_bot.py
+   ```
+   
+2. Start saving data to file:
+   ```shell
+   python read_stream.py
+   ```
+   
+3. After this use this [bot](https://t.me/cryptoproject_news_bot)
+
+
 ## Configuration
 
 Edit `config.py` to change the WebSocket URL or the list of trading pairs.
