@@ -81,7 +81,8 @@ kafka_stream_df = spark \
     .format("kafka") \
     .option("kafka.bootstrap.servers", "localhost:9092") \
     .option("subscribe", "websocket_topic") \
-    .option("failOnDataLoss", "false")\
+    .option("startingOffsets", "latest") \
+    .option("failOnDataLoss", "false") \
     .load()
 
 # The Kafka messages are in byte format; decode them into a string and parse JSON
