@@ -127,12 +127,10 @@ async def send_statistics(chat_id: int, symbol: str, interval: str):
     filtered_pdf = read_data_to_pdf(symbol, interval)
     logging.info(f"Plotting data for symbol={symbol} with interval={interval}")
     plot_path = generate_plot(symbol, interval, filtered_pdf)
-    logging.info(f"plot saved to {plot_path}")
     logging.info(f"Generating text statistics for symbol={symbol} with interval={interval}")
     text_statistics = generate_text_statistics(filtered_pdf)
     logging.info(text_statistics)
     bot = Bot(token=TOKEN)
-    await bot.send_message(chat_id=chat_id, text=f"Last minute ")
     logging.info(f"Sending plot to chat_id={chat_id} for symbol={symbol} with interval={interval}")
     await bot.send_photo(chat_id=chat_id, photo=open(plot_path, 'rb'),
                          caption=f"{symbol} Price Change Plot ({interval.capitalize()})\nStatistics:\n{format_dict_to_text(text_statistics)}")
