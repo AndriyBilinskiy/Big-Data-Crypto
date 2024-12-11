@@ -171,7 +171,7 @@ async def subscribe(update: Update, context: CallbackContext):
     symbol = context.args[0].upper()
     interval = context.args[1].lower()
 
-    if interval not in ["minute", "15_minutes" "hourly", "daily"]:
+    if interval not in ["minute", "15_minutes", "hourly", "daily"]:
         await update.message.reply_text("Invalid interval. Use 'minute', 'hourly', or 'daily'.")
         return
 
