@@ -7,6 +7,12 @@ from telegram import Update, Bot
 from telegram.ext import Application, CommandHandler, CallbackContext, MessageHandler, filters
 from pyspark.sql import SparkSession
 import pytz
+import os
+import logging
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+TOKEN = os.getenv('TELEGRAM_BOT_TOKEN') if os.getenv('TELEGRAM_BOT_TOKEN') else 'API_TOKEN'
 
 LOCAL_TIMEZONE = pytz.timezone("Europe/Kyiv")
 UTC = pytz.utc
@@ -20,11 +26,9 @@ spark = SparkSession.builder \
     .getOrCreate()
 
 
-def generate_plot(symbol: str, interval: str) -> str:
-    """
-    Generate a scatter plot for cryptocurrency price changes over a specific interval
-    (last minute, hour, or day) from a Parquet dataset.
-    """
+def read_data_to_pdf(symbol: str, interval: str):
+    now = datetime.datetime.now(LOCAL_TIMEZONE)
+
     parquet_df = spark.read.parquet("data/part-*.parquet")
 
     pdf = parquet_df.toPandas()
@@ -37,7 +41,6 @@ def generate_plot(symbol: str, interval: str) -> str:
 
     filtered_pdf = pdf[pdf['symbol'] == symbol]
 
-    now = datetime.datetime.now(LOCAL_TIMEZONE)
     if interval == "minute":
         start_time = now - datetime.timedelta(minutes=1)
     elif interval == "hourly":
@@ -47,7 +50,14 @@ def generate_plot(symbol: str, interval: str) -> str:
     else:
         raise ValueError("Invalid interval. Use 'minute', 'hourly', or 'daily'.")
 
-    filtered_pdf = filtered_pdf[filtered_pdf['event_time'] >= start_time]
+    return filtered_pdf[filtered_pdf['event_time'] >= start_time]
+
+
+def generate_plot(symbol: str, interval: str, filtered_pdf) -> str:
+    """
+    Generate a scatter plot for cryptocurrency price changes over a specific interval
+    (last minute, hour, or day) from a Parquet dataset.
+    """
 
     if filtered_pdf.empty:
         plt.figure(figsize=(12, 6))
@@ -57,6 +67,7 @@ def generate_plot(symbol: str, interval: str) -> str:
         plt.axis('off')
         plot_path = f"{symbol}_no_data_plot.png"
         plt.savefig(plot_path)
+        logging.error(f"No data plot to {plot_path}")
         plt.close()
         return plot_path
 
@@ -72,26 +83,64 @@ def generate_plot(symbol: str, interval: str) -> str:
 
     plot_path = f"{symbol}_price_plot_{interval}.png"
     plt.savefig(plot_path)
+    logging.info(f"Saved plot to {plot_path}")
     plt.close()
     return plot_path
 
 
-async def send_plot(chat_id: int, symbol: str, interval: str):
+def generate_text_statistics(filtered_pdf):
+    try:
+        statistics = {}
+
+        first_price = filtered_pdf['price'].iloc[0]
+        last_price = filtered_pdf['price'].iloc[-1]
+        logging.info(f"reached here")
+
+        percent_change = ((last_price - first_price) / first_price) * 100
+        statistics["Percent change"] = percent_change
+        statistics["Maximum price"] = filtered_pdf['price'].max()
+        statistics["Minimum price"] = filtered_pdf['price'].min()
+        statistics["Average price"] = filtered_pdf['price'].mean()
+        statistics["Price standard deviation"] = filtered_pdf['price'].std()
+        statistics["Total volume"] = filtered_pdf['quantity'].sum()
+        return statistics
+    except Exception as e:
+        logging.error(f"Error in generating text statistics {str(e)}")
+        return {}
+
+
+def format_dict_to_text(dictionary: dict) -> str:
+    """
+    Format a dictionary into a string for display.
+    """
+    if not dictionary:
+        return '\nNo data available.'
+    return "\n"+"\n".join(f"{key}: {value}" for key, value in dictionary.items())
+
+
+async def send_statistics(chat_id: int, symbol: str, interval: str):
     """
     Send a cryptocurrency price change plot to a user.
     """
-    print(f"Sending plot to chat_id={chat_id} for symbol={symbol} with interval={interval}")
-    plot_path = generate_plot(symbol, interval)
-    bot = Bot(token='API_TOKEN')
+
+    logging.info(f"Extracting data for symbol={symbol} with interval={interval}")
+    filtered_pdf = read_data_to_pdf(symbol, interval)
+    logging.info(f"Plotting data for symbol={symbol} with interval={interval}")
+    plot_path = generate_plot(symbol, interval, filtered_pdf)
+    logging.info(f"Generating text statistics for symbol={symbol} with interval={interval}")
+    text_statistics = generate_text_statistics(filtered_pdf)
+    logging.info(text_statistics)
+    bot = Bot(token=TOKEN)
+    logging.info(f"Sending plot to chat_id={chat_id} for symbol={symbol} with interval={interval}")
     await bot.send_photo(chat_id=chat_id, photo=open(plot_path, 'rb'),
-                         caption=f"{symbol} Price Change Plot ({interval.capitalize()})")
+                         caption=f"{symbol} Price Change Plot ({interval.capitalize()})\nStatistics:\n{format_dict_to_text(text_statistics)}")
 
 
 def schedule_send_plot(chat_id: int, symbol: str, interval: str):
     """
-    Wrapper to schedule the `send_plot` coroutine.
+    Wrapper to schedule the `send_statistics` coroutine.
     """
-    asyncio.run_coroutine_threadsafe(send_plot(chat_id, symbol, interval), MAIN_EVENT_LOOP)
+    asyncio.run_coroutine_threadsafe(send_statistics(chat_id, symbol, interval), MAIN_EVENT_LOOP)
 
 
 async def start(update: Update, context: CallbackContext):
@@ -101,7 +150,7 @@ async def start(update: Update, context: CallbackContext):
     if update.message:
         await update.message.reply_text("Welcome to the Crypto Price Bot!\nUse /subscribe to get started.")
     else:
-        print("Received an update without a message.")
+        logging.info("Received an update without a message.")
 
 
 async def subscribe(update: Update, context: CallbackContext):
@@ -120,7 +169,8 @@ async def subscribe(update: Update, context: CallbackContext):
         await update.message.reply_text("Invalid interval. Use 'minute', 'hourly', or 'daily'.")
         return
 
-    print(f"Subscribing chat_id={chat_id} to {symbol} updates every {interval}")
+    logging.info(f"Subscribing chat_id={chat_id} to {symbol} updates every {interval}")
+
     subscriptions[chat_id] = {"symbol": symbol, "interval": interval}
 
     trigger_args = {"minutes": 1} if interval == "minute" else {"hours": 1} if interval == "hourly" else {"days": 1}
@@ -160,15 +210,13 @@ async def log_update(update: Update, context: CallbackContext):
     """
     Log incoming updates for debugging purposes.
     """
-    print(f"Received update: {update}")
+    logging.info(f"Received update: {update}")
 
 
 def main():
     """
     Main entry point to start the Telegram bot.
     """
-    TOKEN = 'API_TOKEN'
-
     application = Application.builder().token(TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
@@ -178,7 +226,7 @@ def main():
     application.add_handler(MessageHandler(filters.ALL, log_update))
 
     scheduler.start()
-    print("Scheduler started. Bot is running...")
+    logging.info("Scheduler started. Bot is running...")
 
     application.run_polling()
 
