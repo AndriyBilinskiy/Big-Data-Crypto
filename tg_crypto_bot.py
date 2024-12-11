@@ -9,6 +9,7 @@ from pyspark.sql import SparkSession
 import pytz
 import os
 import logging
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN') if os.getenv('TELEGRAM_BOT_TOKEN') else 'API_TOKEN'
@@ -25,11 +26,7 @@ spark = SparkSession.builder \
     .getOrCreate()
 
 
-def generate_plot(symbol: str, interval: str) -> str:
-    """
-    Generate a scatter plot for cryptocurrency price changes over a specific interval
-    (last minute, hour, or day) from a Parquet dataset.
-    """
+def read_data_to_pdf(symbol: str, interval: str):
     now = datetime.datetime.now(LOCAL_TIMEZONE)
 
     parquet_df = spark.read.parquet("data/part-*.parquet")
@@ -53,7 +50,14 @@ def generate_plot(symbol: str, interval: str) -> str:
     else:
         raise ValueError("Invalid interval. Use 'minute', 'hourly', or 'daily'.")
 
-    filtered_pdf = filtered_pdf[filtered_pdf['event_time'] >= start_time]
+    return filtered_pdf[filtered_pdf['event_time'] >= start_time]
+
+
+def generate_plot(symbol: str, interval: str, filtered_pdf) -> str:
+    """
+    Generate a scatter plot for cryptocurrency price changes over a specific interval
+    (last minute, hour, or day) from a Parquet dataset.
+    """
 
     if filtered_pdf.empty:
         plt.figure(figsize=(12, 6))
@@ -63,6 +67,7 @@ def generate_plot(symbol: str, interval: str) -> str:
         plt.axis('off')
         plot_path = f"{symbol}_no_data_plot.png"
         plt.savefig(plot_path)
+        logging.error(f"No data plot to {plot_path}")
         plt.close()
         return plot_path
 
@@ -78,26 +83,66 @@ def generate_plot(symbol: str, interval: str) -> str:
 
     plot_path = f"{symbol}_price_plot_{interval}.png"
     plt.savefig(plot_path)
+    logging.info(f"Saved plot to {plot_path}")
     plt.close()
     return plot_path
 
 
-async def send_plot(chat_id: int, symbol: str, interval: str):
+def generate_text_statistics(filtered_pdf):
+    try:
+        statistics = {}
+
+        first_price = filtered_pdf['price'].iloc[0]
+        last_price = filtered_pdf['price'].iloc[-1]
+        logging.info(f"reached here")
+
+        percent_change = ((last_price - first_price) / first_price) * 100
+        statistics["Percent change"] = percent_change
+        statistics["Maximum price"] = filtered_pdf['price'].max()
+        statistics["Minimum price"] = filtered_pdf['price'].min()
+        statistics["Average price"] = filtered_pdf['price'].mean()
+        statistics["Price standard deviation"] = filtered_pdf['price'].std()
+        statistics["Total volume"] = filtered_pdf['quantity'].sum()
+        return statistics
+    except Exception as e:
+        logging.error(f"Error in generating text statistics {str(e)}")
+        return {}
+
+
+def format_dict_to_text(dictionary: dict) -> str:
+    """
+    Format a dictionary into a string for display.
+    """
+    if not dictionary:
+        return '\nNo data available.'
+    return "\n"+"\n".join(f"{key}: {value}" for key, value in dictionary.items())
+
+
+async def send_statistics(chat_id: int, symbol: str, interval: str):
     """
     Send a cryptocurrency price change plot to a user.
     """
-    plot_path = generate_plot(symbol, interval)
+
+    logging.info(f"Extracting data for symbol={symbol} with interval={interval}")
+    filtered_pdf = read_data_to_pdf(symbol, interval)
+    logging.info(f"Plotting data for symbol={symbol} with interval={interval}")
+    plot_path = generate_plot(symbol, interval, filtered_pdf)
+    logging.info(f"plot saved to {plot_path}")
+    logging.info(f"Generating text statistics for symbol={symbol} with interval={interval}")
+    text_statistics = generate_text_statistics(filtered_pdf)
+    logging.info(text_statistics)
     bot = Bot(token=TOKEN)
+    await bot.send_message(chat_id=chat_id, text=f"Last minute ")
     logging.info(f"Sending plot to chat_id={chat_id} for symbol={symbol} with interval={interval}")
     await bot.send_photo(chat_id=chat_id, photo=open(plot_path, 'rb'),
-                         caption=f"{symbol} Price Change Plot ({interval.capitalize()})")
+                         caption=f"{symbol} Price Change Plot ({interval.capitalize()})\nStatistics:\n{format_dict_to_text(text_statistics)}")
 
 
 def schedule_send_plot(chat_id: int, symbol: str, interval: str):
     """
-    Wrapper to schedule the `send_plot` coroutine.
+    Wrapper to schedule the `send_statistics` coroutine.
     """
-    asyncio.run_coroutine_threadsafe(send_plot(chat_id, symbol, interval), MAIN_EVENT_LOOP)
+    asyncio.run_coroutine_threadsafe(send_statistics(chat_id, symbol, interval), MAIN_EVENT_LOOP)
 
 
 async def start(update: Update, context: CallbackContext):
