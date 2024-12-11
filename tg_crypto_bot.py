@@ -192,7 +192,7 @@ async def send_plot(chat_id: int, symbol: str, interval: str, chart_type: str):
     """
     print(f"Sending plot to chat_id={chat_id} for symbol={symbol} with interval={interval}")
     plot_path = generate_plot(symbol, interval, chart_type)
-    bot = Bot(token='7794129654:AAHda9872_qI2xRph_DHJAqA54kVU1b7xFE')
+    bot = Bot(token='')
     await bot.send_photo(chat_id=chat_id, photo=open(plot_path, 'rb'),
                          caption=f"{symbol} Price Change Plot ({interval.capitalize()})")
 
@@ -307,7 +307,7 @@ def main():
     """
     Main entry point to start the Telegram bot.
     """
-    TOKEN = '7794129654:AAHda9872_qI2xRph_DHJAqA54kVU1b7xFE'
+    TOKEN = ''
 
     application = Application.builder().token(TOKEN).build()
 
