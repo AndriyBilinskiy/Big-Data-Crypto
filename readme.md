@@ -45,17 +45,24 @@ This project streams real-time cryptocurrency trade data from Binance WebSocket 
 
 ### Telegram Bot:
 
-1. First of all, you need to start bot:
+
+1. Add your bot token as environment variable:
+   ```shell
+   export TELEGRAM_BOT_TOKEN=<your_bot_token>
+   ```
+   or alternatively you can hardcode it to `tg_crypto_bot.py` file:
+
+2. First of all, you need to start bot:
    ```shell
    python tg_crypto_bot.py
    ```
    
-2. Start saving data to file:
+3. Start saving data to file:
    ```shell
    python read_stream.py
    ```
    
-3. After this use this [bot](https://t.me/cryptoproject_news_bot)
+4. After this use this [bot](https://t.me/cryptoproject_news_bot)
 
 
 ## Configuration
