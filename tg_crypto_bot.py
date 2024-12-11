@@ -30,6 +30,8 @@ def generate_plot(symbol: str, interval: str) -> str:
     Generate a scatter plot for cryptocurrency price changes over a specific interval
     (last minute, hour, or day) from a Parquet dataset.
     """
+    now = datetime.datetime.now(LOCAL_TIMEZONE)
+
     parquet_df = spark.read.parquet("data/part-*.parquet")
 
     pdf = parquet_df.toPandas()
@@ -42,7 +44,6 @@ def generate_plot(symbol: str, interval: str) -> str:
 
     filtered_pdf = pdf[pdf['symbol'] == symbol]
 
-    now = datetime.datetime.now(LOCAL_TIMEZONE)
     if interval == "minute":
         start_time = now - datetime.timedelta(minutes=1)
     elif interval == "hourly":
@@ -85,9 +86,9 @@ async def send_plot(chat_id: int, symbol: str, interval: str):
     """
     Send a cryptocurrency price change plot to a user.
     """
-    logging.info(f"Sending plot to chat_id={chat_id} for symbol={symbol} with interval={interval}")
     plot_path = generate_plot(symbol, interval)
     bot = Bot(token=TOKEN)
+    logging.info(f"Sending plot to chat_id={chat_id} for symbol={symbol} with interval={interval}")
     await bot.send_photo(chat_id=chat_id, photo=open(plot_path, 'rb'),
                          caption=f"{symbol} Price Change Plot ({interval.capitalize()})")
 
