@@ -11,7 +11,6 @@ import os
 import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN') if os.getenv('TELEGRAM_BOT_TOKEN') else 'API_TOKEN'
 
 LOCAL_TIMEZONE = pytz.timezone("Europe/Kyiv")
@@ -25,24 +24,14 @@ spark = SparkSession.builder \
     .appName("Crypto Price Bot") \
     .getOrCreate()
 
-
 def read_data_to_pdf(symbol: str, interval: str):
     now = datetime.datetime.now(LOCAL_TIMEZONE)
-
-    parquet_df = spark.read.parquet("data/part-*.parquet")
-
-    pdf = parquet_df.toPandas()
-
-    pdf['event_time'] = pd.to_datetime(pdf['event_time'], unit='ms', utc=True)
-    pdf['event_time'] = pdf['event_time'].dt.tz_convert(LOCAL_TIMEZONE)
-    pdf['quantity'] = pd.to_numeric(pdf['quantity'], errors='coerce')
-    pdf['price'] = pd.to_numeric(pdf['price'], errors='coerce')
-    pdf = pdf.dropna(subset=['quantity', 'price'])
-
-    filtered_pdf = pdf[pdf['symbol'] == symbol]
+    start_time = None
 
     if interval == "minute":
         start_time = now - datetime.timedelta(minutes=1)
+    elif interval == "15_minutes":
+        start_time = now - datetime.timedelta(minutes=15)
     elif interval == "hourly":
         start_time = now - datetime.timedelta(hours=1)
     elif interval == "daily":
@@ -50,7 +39,24 @@ def read_data_to_pdf(symbol: str, interval: str):
     else:
         raise ValueError("Invalid interval. Use 'minute', 'hourly', or 'daily'.")
 
-    return filtered_pdf[filtered_pdf['event_time'] >= start_time]
+    start_time_utc = start_time.astimezone(UTC)
+
+    parquet_df = spark.read.parquet("data/part-*.parquet").select("symbol", "event_time", "price", "quantity")
+
+    filtered_parquet_df = parquet_df.filter(
+        (parquet_df['symbol'] == symbol) &
+        (parquet_df['event_time'] >= start_time_utc.timestamp() * 1000)
+    )
+
+    pdf = filtered_parquet_df.toPandas()
+
+    pdf['event_time'] = pd.to_datetime(pdf['event_time'], unit='ms', utc=True)
+    pdf['event_time'] = pdf['event_time'].dt.tz_convert(LOCAL_TIMEZONE)
+    pdf['quantity'] = pd.to_numeric(pdf['quantity'], errors='coerce')
+    pdf['price'] = pd.to_numeric(pdf['price'], errors='coerce')
+    pdf = pdf.dropna(subset=['quantity', 'price'])
+
+    return pdf
 
 
 def generate_plot(symbol: str, interval: str, filtered_pdf) -> str:
@@ -165,7 +171,7 @@ async def subscribe(update: Update, context: CallbackContext):
     symbol = context.args[0].upper()
     interval = context.args[1].lower()
 
-    if interval not in ["minute", "hourly", "daily"]:
+    if interval not in ["minute", "15_minutes", "hourly", "daily"]:
         await update.message.reply_text("Invalid interval. Use 'minute', 'hourly', or 'daily'.")
         return
 
@@ -173,7 +179,7 @@ async def subscribe(update: Update, context: CallbackContext):
 
     subscriptions[chat_id] = {"symbol": symbol, "interval": interval}
 
-    trigger_args = {"minutes": 1} if interval == "minute" else {"hours": 1} if interval == "hourly" else {"days": 1}
+    trigger_args = {"minutes": 1} if interval == "minute" else {"minutes": 15} if interval == "15_minutes" else {"hours": 1} if interval == "hourly" else {"days": 1}
     scheduler.add_job(
         schedule_send_plot,
         'interval',
@@ -199,6 +205,38 @@ async def unsubscribe(update: Update, context: CallbackContext):
         await update.message.reply_text("You are not subscribed to any updates.")
 
 
+async def get_info(update: Update, context: CallbackContext):
+    """
+    Handle the /getinfo command to fetch and display data for a specific symbol and interval.
+    Usage: /getinfo <symbol> <interval>
+    """
+    if len(context.args) < 2:
+        await update.message.reply_text("Usage: /getinfo <symbol> <interval>\nExample: /getinfo BTCUSDT minute")
+        return
+
+    symbol = context.args[0].upper()
+    interval = context.args[1].lower()
+
+    if interval not in ["minute", "15_minutes", "hourly", "daily"]:
+        await update.message.reply_text("Invalid interval. Use 'minute', '15_minutes', 'hourly', or 'daily'.")
+        return
+
+    chat_id = update.message.chat_id
+    logging.info(f"Fetching data for symbol={symbol} with interval={interval}")
+
+    try:
+        filtered_pdf = read_data_to_pdf(symbol, interval)
+        plot_path = generate_plot(symbol, interval, filtered_pdf)
+        text_statistics = generate_text_statistics(filtered_pdf)
+
+        bot = Bot(token=TOKEN)
+        await bot.send_photo(chat_id=chat_id, photo=open(plot_path, 'rb'),
+                             caption=f"{symbol} Price Change Plot ({interval.capitalize()})\nStatistics:\n{format_dict_to_text(text_statistics)}")
+    except Exception as e:
+        logging.error(f"Error in processing /getinfo command: {e}")
+        await update.message.reply_text("Failed to fetch data. Please try again later.")
+
+
 async def handle_unknown(update: Update, context: CallbackContext):
     """
     Handle unknown or invalid commands.
@@ -222,6 +260,7 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("subscribe", subscribe))
     application.add_handler(CommandHandler("unsubscribe", unsubscribe))
+    application.add_handler(CommandHandler("getinfo", get_info))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_unknown))
     application.add_handler(MessageHandler(filters.ALL, log_update))
 
