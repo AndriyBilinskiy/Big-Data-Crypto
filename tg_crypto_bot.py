@@ -1,5 +1,7 @@
 import asyncio
 import datetime
+import random
+
 import pandas as pd
 import matplotlib.pyplot as plt
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -11,6 +13,7 @@ import os
 import logging
 import mplfinance as mpf
 import matplotlib.ticker as ticker
+from config import POSITIVE_COMMENTS, NEGATIVE_COMMENTS
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN') if os.getenv('TELEGRAM_BOT_TOKEN') else 'API_TOKEN'
@@ -179,7 +182,17 @@ def format_dict_to_text(dictionary: dict) -> str:
     """
     if not dictionary:
         return '\nNo data available.'
-    return "\n" + "\n".join(f"{key}: {value}" for key, value in dictionary.items())
+    formatted_stats = (
+        f"{random.choice(POSITIVE_COMMENTS) if dictionary['Percent change'] > 0 else random.choice(NEGATIVE_COMMENTS)}\n\n"
+        f"Stats Overview:\n"
+        f"🔻 Percent change: {dictionary['Percent change']:.2f}%\n"
+        f"📈 Max Price: ${dictionary['Maximum price']:.2f}\n"
+        f"📉 Min Price: ${dictionary['Minimum price']:.2f}\n"
+        f"💹 Avg Price: ${dictionary['Average price']:.2f}\n"
+        f"📊 Std Dev: ${dictionary['Price standard deviation']:.2f}\n"
+        f"📈 Volume: {dictionary['Total volume']:.2f}"
+    )
+    return "\n"+formatted_stats
 
 
 async def send_statistics(chat_id: int, symbol: str, interval: str, chart_type: str):
@@ -199,14 +212,14 @@ async def send_statistics(chat_id: int, symbol: str, interval: str, chart_type: 
         logging.info(text_statistics)
         logging.info(f"Sending plot to chat_id={chat_id} for symbol={symbol} with interval={interval}")
         await bot.send_photo(chat_id=chat_id, photo=open(plot_path, 'rb'),
-                             caption=f"{symbol} Price Change Plot ({interval.capitalize()})\nStatistics:\n{format_dict_to_text(text_statistics)}")
+                             caption=f"{symbol} Price Change Plot ({interval.capitalize()})\n{format_dict_to_text(text_statistics)}")
     elif chart_type == "Candlestick":
         logging.info(f"Generating text statistics for symbol={symbol} with interval={interval}")
         text_statistics = generate_text_statistics(filtered_pdf)
         logging.info(text_statistics)
         logging.info(f"Sending plot to chat_id={chat_id} for symbol={symbol} with interval={interval}")
         await bot.send_photo(chat_id=chat_id, photo=open(plot_path, 'rb'),
-                             caption=f"{symbol} Price Change Plot (Candlestick) ({interval.capitalize()})\nStatistics:\n{format_dict_to_text(text_statistics)}")
+                             caption=f"{symbol} Price Change Plot (Candlestick) ({interval.capitalize()})\n{format_dict_to_text(text_statistics)}")
     elif chart_type == "Pie":
         logging.info(f"Sending plot to chat_id={chat_id} for symbol={symbol} with interval={interval}")
         await bot.send_photo(chat_id=chat_id, photo=open(plot_path, 'rb'),
