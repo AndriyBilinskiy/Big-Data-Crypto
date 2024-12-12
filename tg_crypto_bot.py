@@ -255,8 +255,8 @@ async def subscribe(update: Update, context: CallbackContext):
     symbol = context.args[0].upper()
     interval = context.args[1].lower()
 
-    if interval not in ["minute", "hourly", "daily"]:
-        await update.message.reply_text("Invalid interval. Use 'minute', 'hourly', or 'daily'.")
+    if interval not in ["minute", "15_minutes", "hourly", "daily"]:
+        await update.message.reply_text("Invalid interval. Use 'minute', '15_minutes', 'hourly', or 'daily'.")
         return
 
     print(f"Subscribing chat_id={chat_id} to {symbol} updates every {interval}")
@@ -294,7 +294,7 @@ async def chart_selection(update: Update, context: CallbackContext):
 
     subscriptions[chat_id] = {"symbol": symbol, "interval": interval}
 
-    trigger_args = {"minutes": 1} if interval == "minute" else {"hours": 1} if interval == "hourly" else {"days": 1}
+    trigger_args = {"minutes": 1} if interval == "minute" else {"minutes": 15} if interval == "15_minutes" else {"hours": 1} if interval == "hourly" else {"days": 1}
     scheduler.add_job(
         schedule_send_plot,
         'interval',
