@@ -13,8 +13,7 @@ import mplfinance as mpf
 import matplotlib.ticker as ticker
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-# TOKEN = os.getenv('TELEGRAM_BOT_TOKEN') if os.getenv('TELEGRAM_BOT_TOKEN') else 'API_TOKEN'
-TOKEN = "7853310977:AAH-SlJ162evh7YjT7mpuOOhb6qHrXO8cUw"
+TOKEN = os.getenv('TELEGRAM_BOT_TOKEN') if os.getenv('TELEGRAM_BOT_TOKEN') else 'API_TOKEN'
 LOCAL_TIMEZONE = pytz.timezone("Europe/Kyiv")
 UTC = pytz.utc
 
