@@ -13,8 +13,8 @@ import mplfinance as mpf
 import matplotlib.ticker as ticker
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-TOKEN = os.getenv('TELEGRAM_BOT_TOKEN') if os.getenv('TELEGRAM_BOT_TOKEN') else 'API_TOKEN'
-
+# TOKEN = os.getenv('TELEGRAM_BOT_TOKEN') if os.getenv('TELEGRAM_BOT_TOKEN') else 'API_TOKEN'
+TOKEN = "7853310977:AAH-SlJ162evh7YjT7mpuOOhb6qHrXO8cUw"
 LOCAL_TIMEZONE = pytz.timezone("Europe/Kyiv")
 UTC = pytz.utc
 
@@ -26,6 +26,7 @@ spark = SparkSession.builder \
     .appName("Crypto Price Bot") \
     .getOrCreate()
 
+
 def read_data_to_pdf(symbol: str, interval: str, chart_type: str):
     now = datetime.datetime.now(LOCAL_TIMEZONE)
     start_time = None
@@ -35,12 +36,14 @@ def read_data_to_pdf(symbol: str, interval: str, chart_type: str):
             start_time = now - datetime.timedelta(minutes=5)
         else:
             start_time = now - datetime.timedelta(minutes=1)
+    elif interval == "15_minutes":
+        start_time = now - datetime.timedelta(minutes=15)
     elif interval == "hourly":
         start_time = now - datetime.timedelta(hours=1)
     elif interval == "daily":
         start_time = now - datetime.timedelta(days=1)
     else:
-        raise ValueError("Invalid interval. Use 'minute', 'hourly', or 'daily'.")
+        raise ValueError("Invalid interval. Use 'minute', '15_minutes', 'hourly', or 'daily'.")
 
     start_time_utc = start_time.astimezone(UTC)
 
@@ -69,8 +72,7 @@ def read_data_to_pdf(symbol: str, interval: str, chart_type: str):
 
 def generate_plot(symbol: str, interval: str, filtered_pdf, chart_type: str) -> str:
     """
-    Generate a scatter plot for cryptocurrency price changes over a specific interval
-    (last minute, hour, or day) from a Parquet dataset.
+    Generate various types of plots for cryptocurrency price changes.
     """
 
     if filtered_pdf.empty:
@@ -84,21 +86,25 @@ def generate_plot(symbol: str, interval: str, filtered_pdf, chart_type: str) -> 
         logging.error(f"No data plot to {plot_path}")
         plt.close()
         return plot_path
-    
+
     if chart_type == "Scatter":
         max_price = filtered_pdf['price'].max()
         min_price = filtered_pdf['price'].min()
         avg_price = filtered_pdf['price'].mean()
-        
+
+        now = datetime.datetime.now(LOCAL_TIMEZONE)
+
         plt.figure(figsize=(12, 6))
         plt.scatter(filtered_pdf['event_time'], filtered_pdf['price'], alpha=0.7, label=f"{symbol} Price")
-        
+
         plt.axhline(y=max_price, color='green', linestyle='--', label=f"Max Price: {max_price}")
         plt.axhline(y=min_price, color='red', linestyle='--', label=f"Min Price: {min_price}")
         plt.axhline(y=avg_price, color='blue', linestyle='--', label=f"Avg Price: {avg_price:.2f}")
-        
-        max_time = filtered_pdf[filtered_pdf['price'] == max_price]['event_time'].iloc[0] if not filtered_pdf[filtered_pdf['price'] == max_price].empty else now
-        min_time = filtered_pdf[filtered_pdf['price'] == min_price]['event_time'].iloc[0] if not filtered_pdf[filtered_pdf['price'] == min_price].empty else now
+
+        max_time = filtered_pdf[filtered_pdf['price'] == max_price]['event_time'].iloc[0] if not filtered_pdf[
+            filtered_pdf['price'] == max_price].empty else now
+        min_time = filtered_pdf[filtered_pdf['price'] == min_price]['event_time'].iloc[0] if not filtered_pdf[
+            filtered_pdf['price'] == min_price].empty else now
 
         plt.scatter(max_time, max_price, color='green', label="Max Point")
         plt.scatter(min_time, min_price, color='red', label="Min Point")
@@ -116,7 +122,7 @@ def generate_plot(symbol: str, interval: str, filtered_pdf, chart_type: str) -> 
         logging.info(f"Saved plot to {plot_path}")
         plt.close()
         return plot_path
-    
+
     elif chart_type == "Candlestick":
         filtered_pdf['event_time'] = pd.to_datetime(filtered_pdf['event_time'])
         ohlc = filtered_pdf.groupby(filtered_pdf['event_time'].dt.floor('T')).agg({
@@ -129,10 +135,10 @@ def generate_plot(symbol: str, interval: str, filtered_pdf, chart_type: str) -> 
 
         plot_path = f"{symbol}_candlestick_plot_{interval}.png"
         mpf.plot(ohlc, type='candle', volume=True, title=f"{symbol} Candlestick Plot ({interval.capitalize()})",
-                style='yahoo', savefig=plot_path)
+                 style='yahoo', savefig=plot_path)
 
         return plot_path
-    
+
     elif chart_type == "Pie":
         quantity_data = filtered_pdf.groupby('symbol').size()
         explode = [0.1 if sym == symbol else 0 for sym in quantity_data.index]
@@ -174,7 +180,7 @@ def format_dict_to_text(dictionary: dict) -> str:
     """
     if not dictionary:
         return '\nNo data available.'
-    return "\n"+"\n".join(f"{key}: {value}" for key, value in dictionary.items())
+    return "\n" + "\n".join(f"{key}: {value}" for key, value in dictionary.items())
 
 
 async def send_statistics(chat_id: int, symbol: str, interval: str, chart_type: str):
@@ -186,25 +192,26 @@ async def send_statistics(chat_id: int, symbol: str, interval: str, chart_type: 
     filtered_pdf = read_data_to_pdf(symbol, interval, chart_type)
     logging.info(f"Plotting data for symbol={symbol} with interval={interval}")
     plot_path = generate_plot(symbol, interval, filtered_pdf, chart_type)
-    
+
+    bot = Bot(token=TOKEN)
     if chart_type == "Scatter":
         logging.info(f"Generating text statistics for symbol={symbol} with interval={interval}")
         text_statistics = generate_text_statistics(filtered_pdf)
         logging.info(text_statistics)
-        bot = Bot(token=TOKEN)
         logging.info(f"Sending plot to chat_id={chat_id} for symbol={symbol} with interval={interval}")
         await bot.send_photo(chat_id=chat_id, photo=open(plot_path, 'rb'),
-                            caption=f"{symbol} Price Change Plot ({interval.capitalize()})\nStatistics:\n{format_dict_to_text(text_statistics)}")
+                             caption=f"{symbol} Price Change Plot ({interval.capitalize()})\nStatistics:\n{format_dict_to_text(text_statistics)}")
     elif chart_type == "Candlestick":
-        bot = Bot(token=TOKEN)
+        logging.info(f"Generating text statistics for symbol={symbol} with interval={interval}")
+        text_statistics = generate_text_statistics(filtered_pdf)
+        logging.info(text_statistics)
         logging.info(f"Sending plot to chat_id={chat_id} for symbol={symbol} with interval={interval}")
         await bot.send_photo(chat_id=chat_id, photo=open(plot_path, 'rb'),
-                            caption=f"{symbol} Price Change Plot (Candlestick) ({interval.capitalize()})")
+                             caption=f"{symbol} Price Change Plot (Candlestick) ({interval.capitalize()})\nStatistics:\n{format_dict_to_text(text_statistics)}")
     elif chart_type == "Pie":
-        bot = Bot(token=TOKEN)
         logging.info(f"Sending plot to chat_id={chat_id} for symbol={symbol} with interval={interval}")
         await bot.send_photo(chat_id=chat_id, photo=open(plot_path, 'rb'),
-                            caption=f"{symbol} Crypto Distribution ({interval.capitalize()})")
+                             caption=f"{symbol} Crypto Distribution ({interval.capitalize()})")
 
 
 def schedule_send_plot(chat_id: int, symbol: str, interval: str, chart_type: str):
@@ -252,11 +259,11 @@ async def subscribe(update: Update, context: CallbackContext):
 
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Choose the type of chart:", reply_markup=reply_markup)
-    
+
 
 async def chart_selection(update: Update, context: CallbackContext):
     """
-    Handle the user's chart selection.
+    Handle the user's chart selection for /subscribe.
     """
     query = update.callback_query
     await query.answer()
@@ -272,7 +279,7 @@ async def chart_selection(update: Update, context: CallbackContext):
         return
 
     context.user_data['chart_type'] = chart_type
-    
+
     subscriptions[chat_id] = {"symbol": symbol, "interval": interval}
 
     trigger_args = {"minutes": 1} if interval == "minute" else {"hours": 1} if interval == "hourly" else {"days": 1}
@@ -285,7 +292,8 @@ async def chart_selection(update: Update, context: CallbackContext):
         replace_existing=True
     )
 
-    await query.edit_message_text(f"Successfully subscribed to {symbol} price updates every {interval} with a {chart_type} chart!")
+    await query.edit_message_text(
+        f"Successfully subscribed to {symbol} price updates every {interval} with a {chart_type} chart!")
 
 
 async def unsubscribe(update: Update, context: CallbackContext):
@@ -318,20 +326,62 @@ async def get_info(update: Update, context: CallbackContext):
         await update.message.reply_text("Invalid interval. Use 'minute', '15_minutes', 'hourly', or 'daily'.")
         return
 
-    chat_id = update.message.chat_id
-    logging.info(f"Fetching data for symbol={symbol} with interval={interval}")
+    # Store symbol and interval in user_data for getinfo chart selection
+    context.user_data['info_symbol'] = symbol
+    context.user_data['info_interval'] = interval
+
+    # Present chart options
+    keyboard = [
+        [InlineKeyboardButton("Pie Chart", callback_data="getinfo_chart_Pie")],
+        [InlineKeyboardButton("Scatter plot", callback_data="getinfo_chart_Scatter")],
+        [InlineKeyboardButton("Candlestick Chart", callback_data="getinfo_chart_Candlestick")],
+    ]
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Choose the type of chart:", reply_markup=reply_markup)
+
+
+async def getinfo_chart_selection(update: Update, context: CallbackContext):
+    """
+    Handle the user's chart selection for /getinfo.
+    """
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data.split("_")  # e.g., ['getinfo', 'chart', 'Pie']
+    if len(data) != 3:
+        await query.edit_message_text("Error: Invalid chart selection.")
+        return
+
+    chart_type = data[2]  # Pie, Scatter, or Candlestick
+    symbol = context.user_data.get('info_symbol')
+    interval = context.user_data.get('info_interval')
+
+    if not symbol or not interval:
+        await query.edit_message_text("Error: Missing symbol or interval data. Please try /getinfo again.")
+        return
 
     try:
-        filtered_pdf = read_data_to_pdf(symbol, interval, chart_type="Scatter")
-        plot_path = generate_plot(symbol, interval, filtered_pdf, chart_type="Scatter")
-        text_statistics = generate_text_statistics(filtered_pdf)
-
+        filtered_pdf = read_data_to_pdf(symbol, interval, chart_type)
+        plot_path = generate_plot(symbol, interval, filtered_pdf, chart_type)
         bot = Bot(token=TOKEN)
-        await bot.send_photo(chat_id=chat_id, photo=open(plot_path, 'rb'),
-                             caption=f"{symbol} Price Change Plot ({interval.capitalize()})\nStatistics:\n{format_dict_to_text(text_statistics)}")
+
+        if chart_type == "Scatter":
+            text_statistics = generate_text_statistics(filtered_pdf)
+            await bot.send_photo(chat_id=query.message.chat_id, photo=open(plot_path, 'rb'),
+                                 caption=f"{symbol} Price Change Plot ({interval.capitalize()})\nStatistics:\n{format_dict_to_text(text_statistics)}")
+        elif chart_type == "Candlestick":
+            text_statistics = generate_text_statistics(filtered_pdf)
+            await bot.send_photo(chat_id=query.message.chat_id, photo=open(plot_path, 'rb'),
+                                 caption=f"{symbol} Candlestick Plot ({interval.capitalize()})\nStatistics:\n{format_dict_to_text(text_statistics)}")
+        elif chart_type == "Pie":
+            await bot.send_photo(chat_id=query.message.chat_id, photo=open(plot_path, 'rb'),
+                                 caption=f"{symbol} Crypto Distribution ({interval.capitalize()})")
+
+        await query.edit_message_text("Here is your requested chart:")
     except Exception as e:
-        logging.error(f"Error in processing /getinfo command: {e}")
-        await update.message.reply_text("Failed to fetch data. Please try again later.")
+        logging.error(f"Error in processing getinfo chart selection: {e}")
+        await query.edit_message_text("Failed to fetch and display data. Please try again later.")
 
 
 async def handle_unknown(update: Update, context: CallbackContext):
@@ -359,6 +409,7 @@ def main():
     application.add_handler(CommandHandler("unsubscribe", unsubscribe))
     application.add_handler(CommandHandler("getinfo", get_info))
     application.add_handler(CallbackQueryHandler(chart_selection, pattern="^chart_"))
+    application.add_handler(CallbackQueryHandler(getinfo_chart_selection, pattern="^getinfo_chart_"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_unknown))
     application.add_handler(MessageHandler(filters.ALL, log_update))
 
