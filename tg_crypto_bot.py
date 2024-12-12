@@ -116,6 +116,7 @@ def generate_plot(symbol: str, interval: str, filtered_pdf, chart_type: str) -> 
         plt.ylabel("Price")
         plt.grid(True)
         plt.xticks(rotation=45)
+        plt.gca().yaxis.set_major_formatter(ticker.StrMethodFormatter('{x:,.0f}'))
         plt.legend()
         plt.tight_layout()
 
