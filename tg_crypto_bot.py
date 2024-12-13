@@ -16,8 +16,7 @@ import matplotlib.ticker as ticker
 from config import POSITIVE_COMMENTS, NEGATIVE_COMMENTS
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-# TOKEN = os.getenv('TELEGRAM_BOT_TOKEN') if os.getenv('TELEGRAM_BOT_TOKEN') else 'API_TOKEN'
-TOKEN = "7794129654:AAG6pmOsPrtML62XGrSzM-fyatOuHQPfH-c"
+TOKEN = os.getenv('TELEGRAM_BOT_TOKEN') if os.getenv('TELEGRAM_BOT_TOKEN') else 'API_TOKEN'
 
 LOCAL_TIMEZONE = pytz.timezone("Europe/Kyiv")
 UTC = pytz.utc
