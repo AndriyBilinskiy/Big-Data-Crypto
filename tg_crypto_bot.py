@@ -16,7 +16,9 @@ import matplotlib.ticker as ticker
 from config import POSITIVE_COMMENTS, NEGATIVE_COMMENTS
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-TOKEN = os.getenv('TELEGRAM_BOT_TOKEN') if os.getenv('TELEGRAM_BOT_TOKEN') else 'API_TOKEN'
+# TOKEN = os.getenv('TELEGRAM_BOT_TOKEN') if os.getenv('TELEGRAM_BOT_TOKEN') else 'API_TOKEN'
+TOKEN = "7794129654:AAG6pmOsPrtML62XGrSzM-fyatOuHQPfH-c"
+
 LOCAL_TIMEZONE = pytz.timezone("Europe/Kyiv")
 UTC = pytz.utc
 
@@ -159,6 +161,7 @@ def generate_plot(symbol: str, interval: str, filtered_pdf, chart_type: str) -> 
 def generate_text_statistics(filtered_pdf):
     try:
         statistics = {}
+        filtered_pdf = filtered_pdf.sort_values('event_time')
 
         first_price = filtered_pdf['price'].iloc[0]
         last_price = filtered_pdf['price'].iloc[-1]
@@ -183,10 +186,12 @@ def format_dict_to_text(dictionary: dict) -> str:
     """
     if not dictionary:
         return '\nNo data available.'
+    arrow = "🔺" if dictionary['Percent change'] > 0 else "🔻"
+
     formatted_stats = (
         f"{random.choice(POSITIVE_COMMENTS) if dictionary['Percent change'] > 0 else random.choice(NEGATIVE_COMMENTS)}\n\n"
         f"Stats Overview:\n"
-        f"🔻 Percent change: {dictionary['Percent change']:.2f}%\n"
+        f"{arrow} Percent change: {dictionary['Percent change']:.2f}%\n"
         f"📈 Max Price: ${dictionary['Maximum price']:.2f}\n"
         f"📉 Min Price: ${dictionary['Minimum price']:.2f}\n"
         f"💹 Avg Price: ${dictionary['Average price']:.2f}\n"
